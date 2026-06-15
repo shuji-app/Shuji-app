@@ -4487,19 +4487,47 @@ var OrientCtrl = (function(){
 
   function activate() {
     hideDialog();
-    _lockOrientation(_mode === 'rotate-yoko' ? 'landscape' : 'portrait');
+    var dir = _mode === 'rotate-yoko' ? 'landscape' : 'portrait';
+    // 全画面リクエスト（ユーザー操作直後なので許可される）
+    var el = document.documentElement;
+    try {
+      if (el.requestFullscreen)            el.requestFullscreen().catch(function(){});
+      else if (el.webkitRequestFullscreen) el.webkitRequestFullscreen();
+    } catch(e) {}
+    _lockOrientation(dir);
   }
 
   function _lockOrientation(dir) {
+    // 向き変更後にcanvasを再描画するヘルパー
+    function onOrientChanged() {
+      // resizeイベントが来るまで少し待つ
+      setTimeout(function(){
+        if (document.getElementById('s-edit') &&
+            document.getElementById('s-edit').classList.contains('on')) {
+          initCanvas();
+        }
+      }, 400);
+    }
+
     try {
       if (screen.orientation && screen.orientation.lock) {
-        screen.orientation.lock(dir).catch(function(){
+        screen.orientation.lock(dir).then(function(){
+          // lock成功：resizeイベントが自動で来るが念のため直接も呼ぶ
+          onOrientChanged();
+        }).catch(function(){
           if (dir === 'landscape') applyFallback();
-          else { document.body.classList.remove('force-landscape'); _fallback = false; }
+          else {
+            document.body.classList.remove('force-landscape');
+            _fallback = false;
+            onOrientChanged();
+          }
         });
       } else {
         if (dir === 'landscape') applyFallback();
-        else document.body.classList.remove('force-landscape');
+        else {
+          document.body.classList.remove('force-landscape');
+          onOrientChanged();
+        }
       }
     } catch(e) { if (dir === 'landscape') applyFallback(); }
   }
@@ -4508,12 +4536,15 @@ var OrientCtrl = (function(){
     if (window.innerHeight > window.innerWidth) {
       document.body.classList.add('force-landscape');
       _fallback = true;
-      setTimeout(function(){
-        if (document.getElementById('s-edit') &&
-            document.getElementById('s-edit').classList.contains('on')) initCanvas();
-      }, 150);
     }
     _active = true;
+    // CSSで強制回転した後、レイアウト確定まで待ってからcanvas再描画
+    setTimeout(function(){
+      if (document.getElementById('s-edit') &&
+          document.getElementById('s-edit').classList.contains('on')) {
+        initCanvas();
+      }
+    }, 300);
   }
 
   function dismiss() { hideDialog(); }
@@ -4536,6 +4567,14 @@ var OrientCtrl = (function(){
     if (_active && _fallback) {
       document.body.classList.toggle('force-landscape', window.innerHeight > window.innerWidth);
     }
+    // 編集画面表示中はresizeのたびにcanvas再描画（向き変更対応）
+    clearTimeout(window._orientResizeTimer);
+    window._orientResizeTimer = setTimeout(function(){
+      if (document.getElementById('s-edit') &&
+          document.getElementById('s-edit').classList.contains('on')) {
+        initCanvas();
+      }
+    }, 350);
   });
 
   return { activate: activate, dismiss: dismiss, suggestRotate: suggestRotate };
